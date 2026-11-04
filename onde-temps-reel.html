@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulation Onde - Temps Réel</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background-color: #f8fafc; display: flex; flex-direction: column; align-items: center; padding: 20px; }
+        .card { background: white; padding: 25px; border-radius: 15px; box-shadow: 0 10px 15px rgba(0,0,0,0.1); width: 100%; max-width: 900px; }
+        canvas { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; width: 100%; height: 400px; }
+        .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-top: 25px; }
+        .control-group { display: flex; flex-direction: column; background: #f1f5f9; padding: 10px; border-radius: 8px; }
+        .stats { margin-top: 20px; padding: 15px; background: #4f46e5; border-radius: 8px; display: flex; justify-content: space-around; font-weight: bold; color: white; }
+        label { margin-bottom: 8px; font-size: 0.9em; color: #475569; font-weight: 600; }
+        button { padding: 12px; cursor: pointer; background: #1e293b; color: white; border: none; border-radius: 6px; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2 style="margin-top:0; color: #1e293b;">Onde en Temps Réel</h2>
+    
+    <canvas id="waveCanvas"></canvas>
+
+    <div class="stats">
+        <span>Fréquence (f) : <span id="valF">0.50</span> Hz</span>
+        <span>Longueur d'onde (λ) : <span id="valLambda">8.00</span> m</span>
+    </div>
+
+    <div class="controls">
+        <div class="control-group">
+            <label>Vitesse (c) : <span id="labelC">4.0</span> m/s</label>
+            <input type="range" id="sliderC" min="1" max="10" step="0.1" value="4">
+        </div>
+        <div class="control-group">
+            <label>Période (T) : <span id="labelT">2.0</span> s</label>
+            <input type="range" id="sliderT" min="0.5" max="5" step="0.1" value="2">
+        </div>
+        <div class="control-group" style="justify-content: center;">
+            <button id="btnPause">PAUSE / LECTURE</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('waveCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    let c = 4.0;
+    let T = 2.0;
+    let t = 0; // Temps physique simulé en secondes
+    let isPaused = false;
+    let lastTimestamp = 0; // Pour calculer le delta temps
+    
+    const Xmax = 20.0; 
+
+    function updateCalculations() {
+        document.getElementById('valF').innerText = (1 / T).toFixed(2);
+        document.getElementById('valLambda').innerText = (c * T).toFixed(2);
+        document.getElementById('labelC').innerText = c.toFixed(1);
+        document.getElementById('labelT').innerText = T.toFixed(1);
+    }
+
+    function drawGraduations(scaleX, scaleY, centerY) {
+        ctx.save();
+        ctx.strokeStyle = "#cbd5e1";
+        ctx.fillStyle = "#64748b";
+        for (let i = 0; i <= Xmax; i += 2) {
+            const xPos = i * scaleX;
+            ctx.beginPath();
+            ctx.moveTo(xPos, 0); ctx.lineTo(xPos, canvas.height); ctx.stroke();
+            ctx.fillText(i + "m", xPos + 5, centerY + 25);
+        }
+        ctx.restore();
+    }
+
+    function animate(timestamp) {
+        // Calcul du temps écoulé depuis la dernière image (en secondes)
+        if (!lastTimestamp) lastTimestamp = timestamp;
+        const dt = (timestamp - lastTimestamp) / 1000;
+        lastTimestamp = timestamp;
+
+        if (!isPaused) {
+            t += dt; // On avance le temps de la simulation selon le temps réel
+        }
+
+        canvas.width = canvas.clientWidth;
+        canvas.height = canvas.clientHeight;
+        const scaleX = canvas.width / Xmax;
+        const scaleY = 100; 
+        const centerY = canvas.height / 2;
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawGraduations(scaleX, scaleY, centerY);
+
+        // Dessin de l'onde
+        ctx.beginPath();
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = '#94a3b8';
+        for (let x = 0; x <= Xmax; x += 0.05) {
+            // Formule : y = sin( 2π * (t/T - x/λ) )
+            // Ce qui revient à : y = sin( (2π/T) * (t - x/c) )
+            const y = Math.sin((2 * Math.PI / T) * (t - x / c));
+            const canvasX = x * scaleX;
+            const canvasY = centerY - (y * scaleY);
+            if (x === 0) ctx.moveTo(canvasX, canvasY);
+            else ctx.lineTo(canvasX, canvasY);
+        }
+        ctx.stroke();
+
+        // Point au milieu (x = 10)
+        const xPoint = 10.0;
+        const yPointVal = Math.sin((2 * Math.PI / T) * (t - xPoint / c));
+        const canvasXPoint = xPoint * scaleX;
+        const canvasYPoint = centerY - (yPointVal * scaleY);
+
+        ctx.beginPath();
+        ctx.setLineDash([5, 5]);
+        ctx.strokeStyle = "#f87171";
+        ctx.moveTo(canvasXPoint, 0); ctx.lineTo(canvasXPoint, canvas.height);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.beginPath();
+        ctx.arc(canvasXPoint, canvasYPoint, 8, 0, Math.PI * 2);
+        ctx.fillStyle = "#ef4444";
+        ctx.fill();
+        ctx.stroke();
+
+        requestAnimationFrame(animate);
+    }
+
+    document.getElementById('sliderC').addEventListener('input', (e) => {
+        c = parseFloat(e.target.value);
+        updateCalculations();
+    });
+
+    document.getElementById('sliderT').addEventListener('input', (e) => {
+        T = parseFloat(e.target.value);
+        updateCalculations();
+    });
+
+    document.getElementById('btnPause').addEventListener('click', () => {
+        isPaused = !isPaused;
+    });
+
+    updateCalculations();
+    requestAnimationFrame(animate);
+</script>
+
+</body>
+</html>
