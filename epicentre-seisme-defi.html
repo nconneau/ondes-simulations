@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Sismologie - Mode Investigation Fluide</title>
+    <style>
+        :root {
+            --bg: #0d1117;
+            --card: #161b22;
+            --p-wave: #2ecc71;
+            --s-wave: #e74c3c;
+            --delta: #f1c40f;
+            --text: #c9d1d9;
+            --grid: #30363d;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0; padding: 15px;
+            display: flex; flex-direction: column; align-items: center;
+            height: 100vh; box-sizing: border-box; overflow-y: auto;
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 20px; width: 100%; max-width: 1400px;
+            min-height: 550px;
+        }
+
+        .map-box {
+            background: var(--card);
+            padding: 5px; border-radius: 12px; border: 1px solid var(--grid);
+            position: relative; overflow: hidden;
+            display: flex; flex-direction: column;
+        }
+
+        #map-canvas { 
+            width: 100%; height: 100%; 
+            background: #1c2128; border-radius: 8px; 
+            cursor: crosshair;
+        }
+
+        .sismo-panel { display: flex; flex-direction: column; gap: 12px; }
+        .sismo-card { background: var(--card); padding: 10px; border-radius: 10px; border: 1px solid var(--grid); }
+        .sismo-header { font-size: 11px; font-weight: bold; margin-bottom: 5px; color: #8b949e; }
+        
+        .view-port {
+            position: relative; height: 120px; background: #010409;
+            border-radius: 4px; overflow: hidden; border: 1px solid var(--grid);
+        }
+
+        .arrival-label {
+            position: absolute; top: 5px; font-size: 11px; font-weight: bold;
+            padding: 2px 4px; border-radius: 3px; background: rgba(0,0,0,0.8);
+            transform: translateX(-50%); z-index: 10;
+        }
+
+        .dt-box {
+            position: absolute; bottom: 0; height: 22px;
+            background: rgba(241, 196, 15, 0.1); border-left: 2px solid var(--delta);
+            border-right: 2px solid var(--delta); color: var(--delta);
+            font-size: 10px; display: flex; align-items: center; justify-content: center;
+            font-weight: bold; opacity: 0;
+        }
+
+        .controls { margin: 15px 0; display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; align-items: center; }
+        button { padding: 10px 18px; border-radius: 6px; border: none; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        .btn-run { background: #238636; color: white; }
+        .btn-reset { background: #30363d; color: white; }
+        .btn-reveal { background: #f1c40f; color: #000; display: none; }
+        
+        .compas-hint {
+            background: #1f6feb; color: white; font-size: 11px; padding: 8px 15px; border-radius: 4px;
+        }
+
+        .data-table {
+            width: 100%; max-width: 900px; margin-top: 15px;
+            border-collapse: collapse; background: var(--card);
+            border-radius: 8px; overflow: hidden; display: none;
+        }
+        .data-table th, .data-table td { padding: 10px; border: 1px solid var(--grid); text-align: center; font-size: 13px; }
+        .data-table th { background: #21262d; color: #8b949e; }
+
+        .status-badge {
+            position: absolute; top: 15px; left: 15px;
+            background: rgba(231, 76, 60, 0.2); color: #e74c3c;
+            padding: 5px 12px; border-radius: 20px; font-size: 12px;
+            border: 1px solid #e74c3c; font-weight: bold; z-index: 30;
+        }
+    </style>
+</head>
+<body>
+
+    <h2 style="margin: 0 0 10px 0;">Analyse Sismique & Triangulation</h2>
+    
+    <div class="dashboard">
+        <div class="map-box">
+            <div id="status" class="status-badge" style="display:none;">SÉISME EN COURS...</div>
+            <canvas id="map-canvas"></canvas>
+        </div>
+
+        <div class="sismo-panel">
+            <div class="sismo-card">
+                <div class="sismo-header">STATION ALPHA</div>
+                <div class="view-port"><canvas id="graph-0"></canvas><div id="dt-0" class="dt-box"></div></div>
+            </div>
+            <div class="sismo-card">
+                <div class="sismo-header">STATION BETA</div>
+                <div class="view-port"><canvas id="graph-1"></canvas><div id="dt-1" class="dt-box"></div></div>
+            </div>
+            <div class="sismo-card">
+                <div class="sismo-header">STATION GAMMA</div>
+                <div class="view-port"><canvas id="graph-2"></canvas><div id="dt-2" class="dt-box"></div></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="controls">
+        <div class="compas-hint"><b>Compas :</b> Clic = Créer | Glisser = Rayon | Clic sur trait bleu = Supprimer</div>
+        <button class="btn-run" id="runBtn" onclick="start()">LANCER LE SÉISME</button>
+        <button class="btn-reveal" id="revealBtn" onclick="reveal()">RÉVÉLER L'ÉPICENTRE</button>
+        <button class="btn-reset" onclick="reset(true)">NOUVEL ÉPICENTRE</button>
+    </div>
+
+    <table class="data-table" id="resultsTable">
+        <thead>
+            <tr>
+                <th>Station</th>
+                <th>Arrivée P (s)</th>
+                <th>Arrivée S (s)</th>
+                <th>Δt (s)</th>
+                <th>Distance Réelle (km)</th>
+            </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+    </table>
+
+    <script>
+        const canvas = document.getElementById('map-canvas');
+        const ctx = canvas.getContext('2d');
+        const mapImg = new Image();
+        mapImg.src = 'fond_carte_seisme.avif'; 
+
+        let epicentre = { x: 0, y: 0 };
+        let stations = [];
+        let userCircles = [];
+        let time = 0;
+        let active = false;
+        let revealed = false;
+        let isDrawing = false;
+        let currentCircle = null;
+        let mousePos = { x: 0, y: 0 };
+        let raf;
+
+        function init() {
+            // Unification des dimensions pour le canvas
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+            
+            stations = [
+                { x: canvas.width * 0.5, y: canvas.height * 0.25, name: "Alpha" },
+                { x: canvas.width * 0.8, y: canvas.height * 0.75, name: "Beta" },
+                { x: canvas.width * 0.2, y: canvas.height * 0.85, name: "Gamma" }
+            ];
+            reset(true);
+            setupInteractions();
+        }
+
+        function setupInteractions() {
+            // Fonction utilitaire pour obtenir les coordonnées précises dans le canvas
+            function getCanvasCoordinates(e) {
+                const rect = canvas.getBoundingClientRect();
+                return {
+                    x: (e.clientX - rect.left) * (canvas.width / rect.width),
+                    y: (e.clientY - rect.top) * (canvas.height / rect.height)
+                };
+            }
+
+            canvas.onmousedown = (e) => {
+                const pos = getCanvasCoordinates(e);
+
+                const borderClick = userCircles.findIndex(c => Math.abs(Math.sqrt((pos.x-c.x)**2 + (pos.y-c.y)**2) - c.r) < 10);
+                if (borderClick !== -1) {
+                    userCircles.splice(borderClick, 1);
+                    drawMap();
+                    return;
+                }
+
+                isDrawing = true;
+                currentCircle = { x: pos.x, y: pos.y, r: 0 };
+                userCircles.push(currentCircle);
+            };
+
+            canvas.onmousemove = (e) => {
+                const pos = getCanvasCoordinates(e);
+                mousePos.x = pos.x;
+                mousePos.y = pos.y;
+
+                if (isDrawing) {
+                    currentCircle.r = Math.sqrt((mousePos.x - currentCircle.x)**2 + (mousePos.y - currentCircle.y)**2);
+                }
+                drawMap();
+            };
+
+            canvas.onmouseup = () => { isDrawing = false; currentCircle = null; };
+        }
+
+        function drawScale() {
+            const scaleWidth = 100;
+            const x = 20;
+            const y = canvas.height - 30;
+            ctx.strokeStyle = "white"; ctx.lineWidth = 2; ctx.beginPath();
+            ctx.moveTo(x, y - 5); ctx.lineTo(x, y);
+            ctx.lineTo(x + scaleWidth, y); ctx.lineTo(x + scaleWidth, y - 5);
+            ctx.stroke();
+            ctx.fillStyle = "white"; ctx.font = "bold 12px Arial"; ctx.textAlign = "center";
+            ctx.fillText("100 km", x + scaleWidth/2, y - 10);
+            ctx.textAlign = "start"; // Reset textAlign
+        }
+
+        function drawMap() {
+            ctx.fillStyle = '#1c2128';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            if (mapImg.complete && mapImg.naturalWidth !== 0) {
+                ctx.drawImage(mapImg, 0, 0, canvas.width, canvas.height);
+            }
+            
+            drawScale();
+
+            // Dessin des cercles utilisateur
+            userCircles.forEach(c => {
+                ctx.strokeStyle = "rgba(31, 111, 235, 0.8)";
+                ctx.lineWidth = 3;
+                ctx.beginPath(); ctx.arc(c.x, c.y, c.r, 0, Math.PI*2); ctx.stroke();
+            });
+
+            // Affichage du rayon au niveau de la souris lors du tracé
+            if (isDrawing && currentCircle) {
+                ctx.fillStyle = "white"; ctx.font = "bold 14px Arial"; ctx.shadowBlur = 4; ctx.shadowColor = "black";
+                ctx.fillText(`${Math.round(currentCircle.r)} km`, mousePos.x + 15, mousePos.y - 15);
+                ctx.shadowBlur = 0;
+            }
+
+            // Dessin des stations
+            stations.forEach(s => {
+                ctx.fillStyle = "white"; ctx.strokeStyle = "black";
+                ctx.beginPath(); ctx.moveTo(s.x, s.y-10); ctx.lineTo(s.x-8, s.y+8); ctx.lineTo(s.x+8, s.y+8);
+                ctx.closePath(); ctx.fill(); ctx.stroke();
+                ctx.font = "bold 11px Arial"; ctx.shadowBlur = 4; ctx.shadowColor = "black";
+                ctx.fillText(s.name, s.x - 15, s.y + 20); ctx.shadowBlur = 0;
+            });
+
+            if(revealed) {
+                ctx.fillStyle = '#f1c40f';
+                ctx.beginPath(); ctx.arc(epicentre.x, epicentre.y, 8, 0, Math.PI*2); ctx.fill();
+                ctx.strokeStyle = "white"; ctx.lineWidth = 2; ctx.stroke();
+            }
+        }
+
+        function start() { if(!active) { reset(false); active = true; document.getElementById('status').style.display = 'block'; document.getElementById('runBtn').disabled = true; animate(); } }
+
+        function reveal() { revealed = true; document.getElementById('resultsTable').style.display = 'table'; updateTable(); drawMap(); }
+
+        function reset(move = false) {
+            active = false; revealed = false; isDrawing = false; userCircles = [];
+            cancelAnimationFrame(raf); time = 0;
+            document.getElementById('status').style.display = 'none';
+            document.getElementById('revealBtn').style.display = 'none';
+            document.getElementById('resultsTable').style.display = 'none';
+            document.getElementById('runBtn').disabled = false;
+            
+            if(move) {
+                epicentre.x = 120 + Math.random() * (canvas.width - 240);
+                epicentre.y = 120 + Math.random() * (canvas.height - 240);
+            }
+            stations.forEach((s, i) => {
+                s.pT = 0; s.sT = 0;
+                s.dist = Math.sqrt((s.x - epicentre.x)**2 + (s.y - epicentre.y)**2);
+                const g = document.getElementById(`graph-${i}`);
+                g.width = g.parentElement.offsetWidth;
+                g.getContext('2d').clearRect(0,0,g.width,g.height);
+                document.querySelectorAll('.arrival-label').forEach(el => el.remove());
+                document.getElementById(`dt-${i}`).style.opacity = 0;
+            });
+            drawMap();
+        }
+
+        function updateTable() {
+            const body = document.getElementById('tableBody'); body.innerHTML = '';
+            stations.forEach(s => {
+                const dt = ((s.sT - s.pT) / 5).toFixed(1);
+                body.innerHTML += `<tr><td>${s.name}</td><td>${(s.pT/5).toFixed(1)}</td><td>${(s.sT/5).toFixed(1)}</td><td style="color:var(--delta); font-weight:bold;">${dt}</td><td>${Math.round(s.dist)} km</td></tr>`;
+            });
+        }
+
+        function animate() {
+            if(!active) return; time += 1; drawMap(); 
+            const vP = 3.5, vS = 1.9; let finished = true;
+
+            stations.forEach((s, i) => {
+                const cvs = document.getElementById(`graph-${i}`), c = cvs.getContext('2d');
+                const x = time * 1.0, mid = 60;
+                if (x < cvs.width) finished = false;
+
+                let amp = 0.5, col = "#30363d";
+                if(time * vP >= s.dist) {
+                    if(!s.pT) { s.pT = time; label(i, 'P', x, 'var(--p-wave)'); }
+                    amp = 20; col = "var(--p-wave)";
+                }
+                if(time * vS >= s.dist) {
+                    if(!s.sT) { s.sT = time; label(i, 'S', x, 'var(--s-wave)'); }
+                    amp = 45; col = "var(--s-wave)";
+                    const dtElem = document.getElementById(`dt-${i}`);
+                    dtElem.style.opacity = 1; dtElem.style.left = s.pT + "px"; dtElem.style.width = (s.sT - s.pT) + "px";
+                    dtElem.innerText = `Δt: ${((s.sT - s.pT)/5).toFixed(1)}s`;
+                }
+                c.strokeStyle = col; c.beginPath(); c.moveTo(x-1, mid); c.lineTo(x, mid + (Math.random()-0.5)*amp); c.stroke();
+            });
+
+            if(!finished) raf = requestAnimationFrame(animate);
+            else { active = false; document.getElementById('status').style.display = 'none'; document.getElementById('revealBtn').style.display = 'inline-block'; }
+        }
+
+        function label(idx, t, x, c) {
+            const l = document.createElement('div');
+            l.className = 'arrival-label'; l.innerText = t; l.style.left = x + "px"; l.style.color = c; l.style.border = `1px solid ${c}`;
+            document.getElementById(`graph-${idx}`).parentElement.appendChild(l);
+        }
+
+        mapImg.onload = init;
+        window.onload = init;
+        window.onresize = init; // Assure la cohérence si la fenêtre est redimensionnée
+    </script>
+</body>
+</html>
